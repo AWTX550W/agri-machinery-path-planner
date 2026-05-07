@@ -41,3 +41,4 @@ Thumbs.db
 
 # Memory files (workbuddy internal)
 .workbuddy/memory/
+test_images/*_result.jpg
