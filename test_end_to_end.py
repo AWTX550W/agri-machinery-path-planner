@@ -87,7 +87,7 @@ def assert_true(test: TestResult, name: str, condition, detail=""):
 
 # ============ 集成测试主流程 ============
 
-def run_integration_test(output_viz=False):
+def run_integration_test(output_viz=False, explain=False):
     """
     完整的端到端集成测试
 
@@ -212,6 +212,15 @@ def run_integration_test(output_viz=False):
         for i, t in enumerate(targets, 1):
             print(f"      #{i} 位置({t.x:.1f},{t.y:.1f}) 成熟度{t.maturity:.0%} 优先级{t.priority}")
 
+        # 创建位置->目标信息的映射（用于--explain）
+        target_info = {}
+        for i, t in enumerate(targets, 1):
+            target_info[(round(t.x, 2), round(t.y, 2))] = {
+                "index": i,
+                "priority": t.priority,
+                "maturity": t.maturity
+            }
+
         # 步骤B: 带避障的路径规划
         actions = planner.plan_route_with_avoidance(targets, start_pos=(0, 0), safe_distance=5.0)
         assert_true(test, "路径规划产出动作序列", len(actions) > 0, f"共{len(actions)}个动作")
@@ -233,6 +242,22 @@ def run_integration_test(output_viz=False):
                 print(f"      #{i} ➡️  {a['from']} → {a['to']} ({a['distance']}m, {a['duration']}s)")
             else:
                 print(f"      #{i} 🍎  @{a['target'][:2]} 成熟度{a['maturity']:.0%}")
+                if explain:
+                    pos = (round(a['target'][0], 2), round(a['target'][1], 2))
+                    info = target_info.get(pos)
+                    if info:
+                        idx = info["index"]
+                        mat = info["maturity"]
+                        pri = info["priority"]
+                        if pri == 1:
+                            reason = "成熟度最高，优先采摘"
+                        elif pri == 2:
+                            reason = "成熟度中等，次优先采摘"
+                        else:
+                            reason = "成熟度较低，最后采摘"
+                        print(f"         📝 解释：果实#{idx}成熟度{mat:.0%}，{reason}")
+                    else:
+                        print(f"         📝 解释：成熟度{a['maturity']:.0%}")
 
         viz_data["stages"]["detection_planning"] = {
             "targets_detected": len(targets),
@@ -328,9 +353,10 @@ def run_integration_test(output_viz=False):
 
 if __name__ == "__main__":
     output_viz = "--viz" in sys.argv
-    
+    output_explain = "--explain" in sys.argv
+
     # 运行测试
-    test_result, viz = run_integration_test(output_viz=output_viz)
+    test_result, viz = run_integration_test(output_viz=output_viz, explain=output_explain)
     
     # 以退出码反映测试结果（0=全部通过，1=有失败）
     sys.exit(0 if test_result.failed == 0 else 1)
