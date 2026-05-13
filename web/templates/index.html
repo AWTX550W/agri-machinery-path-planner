@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>农机自动驾驶路径规划系统</title>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        header { text-align: center; color: white; padding: 30px 0; }
+        header h1 { font-size: 2.5em; margin-bottom: 10px; }
+        header p { opacity: 0.9; }
+        .main-grid { display: grid; grid-template-columns: 1fr 350px; gap: 20px; }
+        .card { background: white; border-radius: 16px; padding: 20px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
+        .card h2 { font-size: 1.2em; margin-bottom: 15px; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 10px; }
+        .viz-container { height: 600px; }
+        .params { display: grid; gap: 15px; }
+        .param-group { display: flex; flex-direction: column; gap: 5px; }
+        .param-group label { font-weight: 600; color: #555; font-size: 0.9em; }
+        .param-group input, .param-group select { padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 1em; }
+        .btn { padding: 12px 24px; border: none; border-radius: 8px; font-size: 1em; font-weight: 600; cursor: pointer; transition: all 0.3s; }
+        .btn-primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4); }
+        .btn-secondary { background: #e0e0e0; color: #555; }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px; }
+        .stat-item { background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }
+        .stat-item .value { font-size: 1.8em; font-weight: bold; color: #667eea; }
+        .stat-item .label { font-size: 0.8em; color: #888; }
+        .mode-toggle { display: flex; gap: 10px; margin-bottom: 15px; }
+        .mode-btn { flex: 1; padding: 10px; border: 2px solid #667eea; background: white; color: #667eea; border-radius: 8px; cursor: pointer; font-weight: 600; }
+        .mode-btn.active { background: #667eea; color: white; }
+        .presets { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 15px; }
+        .preset-btn { padding: 8px; background: #f0f0f0; border: none; border-radius: 6px; cursor: pointer; font-size: 0.85em; }
+        .preset-btn:hover { background: #667eea; color: white; }
+        #status { margin-top: 15px; padding: 10px; border-radius: 8px; font-size: 0.9em; display: none; }
+        .status-success { background: #d4edda; color: #155724; }
+        .status-error { background: #f8d7da; color: #721c24; }
+        .status-info { background: #d1ecf1; color: #0c5460; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🌾 农机自动驾驶路径规划系统</h1>
+            <p>支持弓字形路径 | 动态避障 | B样条平滑 | 多机协同</p>
+        </header>
+        
+        <div class="main-grid">
+            <div class="card">
+                <h2>📍 路径可视化</h2>
+                <div id="viz" class="viz-container"></div>
+            </div>
+            
+            <div>
+                <div class="card" style="margin-bottom: 20px;">
+                    <h2>⚙️ 参数配置</h2>
+                    <div class="mode-toggle">
+                        <button class="mode-btn active" onclick="setMode('single')">单机模式</button>
+                        <button class="mode-btn" onclick="setMode('multi')">多机模式</button>
+                    </div>
+                    <div class="params">
+                        <div class="param-group">
+                            <label>作业幅宽 (m)</label>
+                            <input type="number" id="workingWidth" value="5" min="1" max="20">
+                        </div>
+                        <div class="param-group" id="robotGroup" style="display: none;">
+                            <label>农机数量</label>
+                            <input type="number" id="numRobots" value="3" min="1" max="6">
+                        </div>
+                        <div class="param-group">
+                            <label>最大曲率</label>
+                            <input type="number" id="maxCurvature" value="0.15" step="0.01">
+                        </div>
+                    </div>
+                    <div class="presets">
+                        <button class="preset-btn" onclick="loadPreset('rectangle')">矩形田块</button>
+                        <button class="preset-btn" onclick="loadPreset('l_shape')">L形田块</button>
+                        <button class="preset-btn" onclick="loadPreset('with_obstacle')">带障碍物</button>
+                        <button class="preset-btn" onclick="loadPreset('irregular')">不规则</button>
+                    </div>
+                    <div style="display: flex; gap: 10px; margin-top: 15px;">
+                        <button class="btn btn-primary" onclick="runPlanning()" style="flex: 1;">▶ 规划路径</button>
+                        <button class="btn btn-secondary" onclick="runSmoothing()">✨ 平滑</button>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h2>📊 统计信息</h2>
+                    <div class="stats-grid">
+                        <div class="stat-item"><div class="value" id="statLines">-</div><div class="label">作业线数</div></div>
+                        <div class="stat-item"><div class="value" id="statLength">-</div><div class="label">总长度(m)</div></div>
+                        <div class="stat-item"><div class="value" id="statCoverage">-</div><div class="label">覆盖率(%)</div></div>
+                        <div class="stat-item"><div class="value" id="statPoints">-</div><div class="label">路径点数</div></div>
+                    </div>
+                    <div id="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let currentMode = 'single';
+        let currentData = null;
+        
+        function setMode(mode) {
+            currentMode = mode;
+            document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            document.getElementById('robotGroup').style.display = mode === 'multi' ? 'flex' : 'none';
+        }
+        
+        async function loadPresets() {
+            const res = await fetch('/api/presets');
+            return await res.json();
+        }
+        
+        async function loadPreset(name) {
+            const presets = await loadPresets();
+            showStatus(`已加载: ${presets[name]?.name || name}`, 'info');
+        }
+        
+        async function runPlanning() {
+            const workingWidth = document.getElementById('workingWidth').value;
+            const numRobots = document.getElementById('numRobots').value;
+            showStatus('正在规划...', 'info');
+            
+            try {
+                const res = await fetch('/api/plan', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        working_width: parseFloat(workingWidth),
+                        num_robots: currentMode === 'multi' ? parseInt(numRobots) : 1,
+                        boundary: [[0,0], [100,0], [100,60], [0,60]],
+                        obstacles: [{'x': 50, 'y': 30, 'radius': 8}]
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    currentData = data;
+                    updateStats(data.stats);
+                    drawPath(data);
+                    showStatus('规划成功！', 'success');
+                } else {
+                    showStatus('规划失败', 'error');
+                }
+            } catch (e) {
+                showStatus('请求失败: ' + e.message, 'error');
+            }
+        }
+        
+        async function runSmoothing() {
+            if (!currentData || !currentData.path) {
+                showStatus('请先进行路径规划', 'error');
+                return;
+            }
+            showStatus('正在平滑...', 'info');
+            try {
+                const res = await fetch('/api/smooth', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({path: currentData.path, max_curvature: parseFloat(document.getElementById('maxCurvature').value)})
+                });
+                const data = await res.json();
+                if (data.success) {
+                    currentData.smoothedPath = data.smoothed_path;
+                    Plotly.extendTraces('viz', [{x: data.smoothed_path.map(p => p[0]), y: data.smoothed_path.map(p => p[1]), mode: 'lines', line: {color: '#9b59b6', width: 3, dash: 'dot'}, name: '平滑路径'}], [0]);
+                    showStatus('平滑完成！', 'success');
+                }
+            } catch (e) {
+                showStatus('平滑失败', 'error');
+            }
+        }
+        
+        function drawPath(data) {
+            const traces = [];
+            const boundary = data.boundary;
+            traces.push({x: [...boundary.map(p => p[0]), boundary[0][0]], y: [...boundary.map(p => p[1]), boundary[0][1]], mode: 'lines', line: {color: '#333', width: 3}, name: '田块边界'});
+            
+            if (data.work_lines) {
+                for (const line of data.work_lines) {
+                    traces.push({x: [line[0], line[2]], y: [line[1], line[3]], mode: 'lines', line: {color: '#2ecc71', width: 1, dash: 'dash'}, hoverinfo: 'skip', showlegend: false});
+                }
+            }
+            
+            if (data.path) {
+                const pathX = data.path.map(p => p[0] || p.x);
+                const pathY = data.path.map(p => p[1] || p.y);
+                traces.push({x: pathX, y: pathY, mode: 'lines+markers', line: {color: '#3498db', width: 2}, marker: {size: 4}, name: '规划路径'});
+                traces.push({x: [pathX[0]], y: [pathY[0]], mode: 'markers', marker: {size: 15, color: '#2ecc71', symbol: 'triangle-up'}, name: '起点'});
+                traces.push({x: [pathX[pathX.length-1]], y: [pathY[pathY.length-1]], mode: 'markers', marker: {size: 15, color: '#e74c3c', symbol: 'square'}, name: '终点'});
+            }
+            
+            if (data.obstacles) {
+                for (const obs of data.obstacles) {
+                    traces.push({x: [obs.x], y: [obs.y], mode: 'markers', marker: {size: obs.radius * 2, color: 'rgba(231, 76, 60, 0.3)', line: {color: '#e74c3c', width: 2}}, name: '障碍物', showlegend: false});
+                }
+            }
+            
+            if (data.robots) {
+                for (const robot of data.robots) {
+                    if (robot.path && robot.path.length > 0) {
+                        traces.push({x: robot.path.map(p => p[0]), y: robot.path.map(p => p[1]), mode: 'lines', line: {color: robot.color || '#3498db', width: 3}, name: `农机 ${robot.id}`});
+                    }
+                }
+            }
+            
+            Plotly.newPlot('viz', traces, {title: currentMode === 'multi' ? '多机协同路径规划' : '单机弓字形路径规划', xaxis: {title: 'X (m)', scaleanchor: 'y', scaleratio: 1}, yaxis: {title: 'Y (m)'}, margin: {t: 50}, legend: {x: 1, y: 1}}, {responsive: true});
+        }
+        
+        function updateStats(stats) {
+            if (!stats) return;
+            document.getElementById('statLines').textContent = stats.work_lines || '-';
+            document.getElementById('statLength').textContent = stats.total_length ? stats.total_length.toFixed(0) : '-';
+            document.getElementById('statCoverage').textContent = stats.coverage_rate || '-';
+            document.getElementById('statPoints').textContent = currentData?.path?.length || '-';
+        }
+        
+        function showStatus(msg, type) {
+            const el = document.getElementById('status');
+            el.textContent = msg;
+            el.className = 'status-' + type;
+            el.style.display = 'block';
+        }
+        
+        loadPresets();
+    </script>
+</body>
+</html>
